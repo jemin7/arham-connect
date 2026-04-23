@@ -1,6 +1,11 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabaseClient";
+import {
+  appendUniqueMessage,
+  formatChatTimestamp,
+  getDisplayName,
+} from "../utils/chat";
 
 export default function Chat() {
   const { conversationId } = useParams();
@@ -11,6 +16,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [participantName, setParticipantName] = useState("Conversation");
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -42,6 +48,27 @@ export default function Chat() {
 
       if (isMounted) {
         setUserId(user.id);
+      }
+
+      const { data: participants } = await supabase
+        .from("conversation_participants")
+        .select("user_id")
+        .eq("conversation_id", conversationId);
+
+      const otherParticipant = (participants || []).find(
+        (participant) => participant.user_id !== user.id,
+      );
+
+      if (otherParticipant) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id,full_name,name,username,email")
+          .eq("id", otherParticipant.user_id)
+          .maybeSingle();
+
+        if (isMounted) {
+          setParticipantName(getDisplayName(profile, otherParticipant.user_id));
+        }
       }
 
       const { data, error: fetchError } = await supabase
@@ -78,7 +105,7 @@ export default function Chat() {
           },
           (payload) => {
             if (!isMounted) return;
-            setMessages((prev) => [...prev, payload.new]);
+            setMessages((prev) => appendUniqueMessage(prev, payload.new));
             window.setTimeout(scrollToBottom, 0);
           },
         )
@@ -102,120 +129,88 @@ export default function Chat() {
     setSending(true);
     setError("");
 
-    const { error } = await supabase.from("messages").insert([
-      {
-        conversation_id: conversationId,
-        sender_id: userId,
-        content: newMessage.trim(),
-      },
-    ]);
+    const trimmedMessage = newMessage.trim();
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert([
+        {
+          conversation_id: conversationId,
+          sender_id: userId,
+          content: trimmedMessage,
+        },
+      ])
+      .select("*")
+      .single();
 
     if (error) {
       setError(error.message);
     } else {
+      setMessages((prev) => appendUniqueMessage(prev, data));
       setNewMessage("");
+      window.setTimeout(scrollToBottom, 0);
     }
 
     setSending(false);
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100svh",
-        maxWidth: "600px",
-        margin: "0 auto",
-        background: "#fff",
-      }}
-    >
-      <header
-        style={{
-          padding: "15px",
-          background: "#eee",
-          display: "flex",
-          gap: "10px",
-        }}
-      >
-        <button onClick={() => navigate("/chats")}>&larr; Back</button>
-        <h3 style={{ margin: 0 }}>Chat</h3>
-      </header>
-
-      {error && (
-        <p style={{ color: "#b00020", padding: "12px 20px 0" }}>{error}</p>
-      )}
-
-      <div
-        style={{
-          flex: 1,
-          padding: "20px",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-        }}
-      >
-        {loading && <p>Loading messages...</p>}
-        {!loading && messages.length === 0 && (
-          <p style={{ color: "#666" }}>No messages yet. Start the conversation below.</p>
-        )}
-        {messages.map((msg) => {
-          const isMe = msg.sender_id === userId;
-          return (
-            <div
-              key={msg.id}
-              style={{
-                alignSelf: isMe ? "flex-end" : "flex-start",
-                background: isMe ? "#007bff" : "#e5e5ea",
-                color: isMe ? "white" : "black",
-                padding: "10px 15px",
-                borderRadius: "15px",
-                maxWidth: "70%",
-              }}
-            >
-              {msg.content}
+    <div className="screen-shell">
+      <section className="chat-panel">
+        <header className="screen-header chat-header">
+          <div className="chat-header-main">
+            <button className="ghost-button" onClick={() => navigate("/chats")}>
+              Back
+            </button>
+            <div>
+              <p className="eyebrow">Conversation</p>
+              <h2>{participantName}</h2>
             </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
-      </div>
+          </div>
+          <span className="conversation-chip">{conversationId?.slice(0, 8)}</span>
+        </header>
 
-      <form
-        onSubmit={handleSendMessage}
-        style={{
-          padding: "15px",
-          display: "flex",
-          gap: "10px",
-          background: "#eee",
-        }}
-      >
-        <input
-          type="text"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Type a message..."
-          disabled={!userId || sending}
-          style={{
-            flex: 1,
-            padding: "10px",
-            borderRadius: "5px",
-            border: "1px solid #ccc",
-          }}
-        />
-        <button
-          type="submit"
-          style={{
-            padding: "10px 20px",
-            background: "#007bff",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-          }}
-        >
-          {sending ? "Sending..." : "Send"}
-        </button>
-      </form>
+        {error && <p className="status-banner error">{error}</p>}
+
+        <div className="messages-area">
+          {loading && <p className="empty-state">Loading messages...</p>}
+
+          {!loading && messages.length === 0 && (
+            <p className="empty-state">
+              No messages yet. Start the conversation below.
+            </p>
+          )}
+
+          {messages.map((message) => {
+            const isMe = message.sender_id === userId;
+
+            return (
+              <article
+                key={message.id}
+                className={isMe ? "message-bubble mine" : "message-bubble"}
+              >
+                <p>{message.content}</p>
+                <span>{formatChatTimestamp(message.created_at)}</span>
+              </article>
+            );
+          })}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        <form className="composer" onSubmit={handleSendMessage}>
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Type a message..."
+            disabled={!userId || sending}
+          />
+          <button className="primary-button" type="submit" disabled={sending}>
+            {sending ? "Sending..." : "Send"}
+          </button>
+        </form>
+      </section>
     </div>
   );
 }
