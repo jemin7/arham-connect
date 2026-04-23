@@ -20,8 +20,6 @@ jobs:
         with:
           node-version: 22
 
-      # THIS IS THE MISSING STEP: 
-      # It tells GitHub to use Java 21 so Gradle can compile the app
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -54,5 +52,5 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: arham-connect/android/app/build/outputs/apk/debug/app-debug.apk
+          name: arham-connect
+          path: arham-connect/android/app/build/outputs/apk/debug/arham-connect.apk
