@@ -181,7 +181,6 @@ Assessment items still to provide separately:
 
 - public GitHub repo link
 - APK file
-- short walkthrough video
 
 ## Notes
 
