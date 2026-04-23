@@ -8,33 +8,65 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [userId, setUserId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
 
-  // Auto-scroll to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
+    let isMounted = true;
+    let channel;
+
     const setupChat = async () => {
+      setLoading(true);
+      setError("");
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
-      if (!user) return navigate("/login");
-      setUserId(user.id);
 
-      // 1. Fetch existing messages
-      const { data } = await supabase
+      if (authError) {
+        if (isMounted) {
+          setError(authError.message);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (!user) return navigate("/login");
+
+      if (isMounted) {
+        setUserId(user.id);
+      }
+
+      const { data, error: fetchError } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
-      if (data) setMessages(data);
-      scrollToBottom();
+      if (fetchError) {
+        if (isMounted) {
+          setError(fetchError.message);
+          setMessages([]);
+          setLoading(false);
+        }
+        return;
+      }
 
-      // 2. Subscribe to Realtime new messages
-      const channel = supabase
+      if (isMounted) {
+        setMessages(data || []);
+        setLoading(false);
+      }
+
+      window.setTimeout(scrollToBottom, 0);
+
+      channel = supabase
         .channel(`chat_${conversationId}`)
         .on(
           "postgres_changes",
@@ -45,23 +77,30 @@ export default function Chat() {
             filter: `conversation_id=eq.${conversationId}`,
           },
           (payload) => {
+            if (!isMounted) return;
             setMessages((prev) => [...prev, payload.new]);
-            scrollToBottom();
+            window.setTimeout(scrollToBottom, 0);
           },
         )
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
     };
 
     setupChat();
+
+    return () => {
+      isMounted = false;
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [conversationId, navigate]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !userId) return;
+
+    setSending(true);
+    setError("");
 
     const { error } = await supabase.from("messages").insert([
       {
@@ -71,7 +110,13 @@ export default function Chat() {
       },
     ]);
 
-    if (!error) setNewMessage("");
+    if (error) {
+      setError(error.message);
+    } else {
+      setNewMessage("");
+    }
+
+    setSending(false);
   };
 
   return (
@@ -79,9 +124,10 @@ export default function Chat() {
       style={{
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
+        minHeight: "100svh",
         maxWidth: "600px",
         margin: "0 auto",
+        background: "#fff",
       }}
     >
       <header
@@ -96,6 +142,10 @@ export default function Chat() {
         <h3 style={{ margin: 0 }}>Chat</h3>
       </header>
 
+      {error && (
+        <p style={{ color: "#b00020", padding: "12px 20px 0" }}>{error}</p>
+      )}
+
       <div
         style={{
           flex: 1,
@@ -106,6 +156,10 @@ export default function Chat() {
           gap: "10px",
         }}
       >
+        {loading && <p>Loading messages...</p>}
+        {!loading && messages.length === 0 && (
+          <p style={{ color: "#666" }}>No messages yet. Start the conversation below.</p>
+        )}
         {messages.map((msg) => {
           const isMe = msg.sender_id === userId;
           return (
@@ -141,6 +195,7 @@ export default function Chat() {
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
           placeholder="Type a message..."
+          disabled={!userId || sending}
           style={{
             flex: 1,
             padding: "10px",
@@ -158,7 +213,7 @@ export default function Chat() {
             borderRadius: "5px",
           }}
         >
-          Send
+          {sending ? "Sending..." : "Send"}
         </button>
       </form>
     </div>

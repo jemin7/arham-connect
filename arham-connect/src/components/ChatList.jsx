@@ -4,24 +4,41 @@ import { supabase } from "../supabaseClient";
 
 export default function ChatList() {
   const [conversations, setConversations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchConversations = async () => {
+      setLoading(true);
+      setError("");
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
+
+      if (authError) {
+        setError(authError.message);
+        setLoading(false);
+        return;
+      }
+
       if (!user) return navigate("/login");
 
-      // Fetch conversations the user is part of
       const { data, error } = await supabase
         .from("conversation_participants")
         .select("conversation_id")
         .eq("user_id", user.id);
 
-      if (data) {
-        setConversations(data);
+      if (error) {
+        setError(error.message);
+        setConversations([]);
+      } else {
+        setConversations(data || []);
       }
+
+      setLoading(false);
     };
 
     fetchConversations();
@@ -55,8 +72,15 @@ export default function ChatList() {
         </button>
       </div>
 
+      {error && (
+        <p style={{ color: "#b00020", marginBottom: "12px" }}>{error}</p>
+      )}
+
+      {loading && <p>Loading conversations...</p>}
+
       <ul style={{ listStyle: "none", padding: 0 }}>
-        {conversations.map((chat) => (
+        {!loading &&
+          conversations.map((chat) => (
           <li
             key={chat.conversation_id}
             onClick={() => navigate(`/chat/${chat.conversation_id}`)}
@@ -73,8 +97,8 @@ export default function ChatList() {
               Tap to view messages
             </p>
           </li>
-        ))}
-        {conversations.length === 0 && <p>No conversations found.</p>}
+          ))}
+        {!loading && conversations.length === 0 && <p>No conversations found.</p>}
       </ul>
     </div>
   );
