@@ -20,8 +20,8 @@ jobs:
         with:
           node-version: 22
 
-      # THIS IS THE NEW FIX: 
-      # Tells GitHub to use Java 21 so Gradle can compile the app
+      # THIS IS THE MISSING STEP: 
+      # It tells GitHub to use Java 21 so Gradle can compile the app
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
